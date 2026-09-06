@@ -8,12 +8,13 @@ type LoginRequest struct {
 }
 
 type UserDTO struct {
-	ID       string   `json:"id"`
-	Email    string   `json:"email"`
-	FullName string   `json:"fullName"`
-	TenantID string   `json:"tenantId"`
-	Role     string   `json:"role"`
-	Modules  []string `json:"modules"`
+	ID           string   `json:"id"`
+	Email        string   `json:"email"`
+	FullName     string   `json:"fullName"`
+	TenantID     string   `json:"tenantId"`
+	Role         string   `json:"role"`
+	Modules      []string `json:"modules"`
+	IsSuperAdmin bool     `json:"isSuperAdmin"`
 }
 
 type LoginResponse struct {
@@ -42,4 +43,5 @@ type DBUser struct {
 	PasswordHash string
 	FullName     string
 	Role         string
+	IsSuperAdmin bool
 }

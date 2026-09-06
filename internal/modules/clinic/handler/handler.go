@@ -58,6 +58,18 @@ func mapSvcErr(c *fiber.Ctx, err error) error {
 	}
 }
 
+func (h *Handler) ListAll(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	out, err := h.svc.ListAll(c.Context(), m, c.Query("archived") == "true")
+	if err != nil {
+		return mapSvcErr(c, err)
+	}
+	return writeJSON(c, fiber.StatusOK, map[string]any{"clinics": out})
+}
+
 func (h *Handler) List(c *fiber.Ctx) error {
 	m, err := h.meta(c)
 	if err != nil {

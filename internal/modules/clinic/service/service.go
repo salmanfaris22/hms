@@ -74,6 +74,14 @@ func (s *Service) audit(ctx context.Context, m Meta, action, resource string) {
 
 // ── clinics CRUD ─────────────────────────────────────────────────────────────
 
+func (s *Service) ListAll(ctx context.Context, m Meta, archived bool) ([]model.ClinicDTO, error) {
+	pool, err := s.pool(ctx, m.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListAllClinics(ctx, pool, archived)
+}
+
 func (s *Service) List(ctx context.Context, m Meta, archived bool) ([]model.ClinicDTO, error) {
 	pool, err := s.pool(ctx, m.TenantID)
 	if err != nil {

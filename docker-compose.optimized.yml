@@ -12,7 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     ports:
-      - "5433:5432"
+      - "5434:5432"
     command: postgresql -c config_file=/etc/postgresql/postgresql.conf
     deploy:
       resources:

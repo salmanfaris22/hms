@@ -39,8 +39,7 @@ func (r *Repository) IsMember(ctx context.Context, pool *pgxpool.Pool, clinicID,
 
 // ── Staff list / count ─────────────────────────────────────────────────────
 
-const staffSelect = `
-SELECT
+const staffColumns = `
     u.id::text,
     COALESCE(sp.staff_code, ''),
     u.email,
@@ -62,18 +61,71 @@ SELECT
     COALESCE(sp.view_in_emr, true),
     COALESCE(sp.join_date, u.created_at::date),
     COALESCE(sp.status, CASE WHEN u.is_active THEN 'active' ELSE 'inactive' END),
-    u.is_active
+    u.is_active,
+    u.is_super_admin,
+    COALESCE(sp.father_name, ''),
+    COALESCE(sp.mother_name, ''),
+    COALESCE(sp.gender, ''),
+    COALESCE(sp.marital_status, ''),
+    sp.date_of_birth,
+    COALESCE(sp.blood_group, ''),
+    COALESCE(sp.professional_id, ''),
+    COALESCE(sp.address, ''),
+    COALESCE(sp.locality, ''),
+    COALESCE(sp.pincode, ''),
+    COALESCE(sp.state, ''),
+    COALESCE(sp.country, ''),
+    sp.date_of_leaving,
+    COALESCE((SELECT string_agg(r.name, ', ' ORDER BY r.name)
+              FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+              WHERE ur.user_id = u.id AND ur.clinic_id = cm.clinic_id), ''),
+    -- an explicit stamp, or a login that has actually been used, both prove
+    -- the account has working credentials
+    (sp.credentials_set_at IS NOT NULL OR u.last_login_at IS NOT NULL)`
+
+const staffFrom = `
 FROM users u
 JOIN clinic_members cm ON cm.user_id = u.id
 LEFT JOIN staff_profiles sp ON sp.user_id = u.id
 LEFT JOIN departments d   ON d.id = sp.department_id
 LEFT JOIN designations dg ON dg.id = sp.designation_id
-LEFT JOIN specializations sx ON sx.id = sp.specialization_id
-`
+LEFT JOIN specializations sx ON sx.id = sp.specialization_id`
 
+// clinicJoinScoped is the default: one row per member of the clinic being viewed.
+const clinicJoinScoped = "JOIN clinic_members cm ON cm.user_id = u.id"
+
+// clinicJoinAll is used when a super admin lists every user in the tenant. A plain
+// LEFT JOIN would emit one row per membership, so someone in six clinics appeared
+// six times and `total` counted them six times. DISTINCT ON collapses that to one
+// row per user while keeping cm.clinic_id available for the roles sub-select.
+const clinicJoinAll = `LEFT JOIN (
+    SELECT DISTINCT ON (user_id) user_id, clinic_id
+      FROM clinic_members
+     ORDER BY user_id, clinic_id
+) cm ON cm.user_id = u.id`
+
+func clinicJoin(allUsers bool) string {
+	if allUsers {
+		return clinicJoinAll
+	}
+	return clinicJoinScoped
+}
+
+func staffSelect(join string) string {
+	return "SELECT" + staffColumns + strings.Replace(staffFrom, clinicJoinScoped, join, 1)
+}
+
+func staffCountFrom(join string) string {
+	return strings.Replace(staffFrom, clinicJoinScoped, join, 1)
+}
 func (r *Repository) ListStaff(ctx context.Context, pool *pgxpool.Pool, f model.ListFilter) ([]model.StaffDTO, int, error) {
-	where := []string{"cm.clinic_id = $1::uuid"}
-	args := []any{f.ClinicID}
+	joinClinic := clinicJoin(f.AllUsers)
+	where := []string{}
+	args := []any{}
+	if !f.AllUsers {
+		where = append(where, "cm.clinic_id = $1::uuid")
+		args = append(args, f.ClinicID)
+	}
 	if f.Search != "" {
 		args = append(args, "%"+f.Search+"%")
 		idx := strconv.Itoa(len(args))
@@ -88,13 +140,16 @@ func (r *Repository) ListStaff(ctx context.Context, pool *pgxpool.Pool, f model.
 		where = append(where, "COALESCE(sp.status, CASE WHEN u.is_active THEN 'active' ELSE 'inactive' END) = $"+strconv.Itoa(len(args)))
 	}
 
-	whereSQL := "WHERE " + strings.Join(where, " AND ")
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
+
+	from := staffCountFrom(joinClinic)
 
 	var total int
 	if err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users u
-		 JOIN clinic_members cm ON cm.user_id = u.id
-		 LEFT JOIN staff_profiles sp ON sp.user_id = u.id `+whereSQL, args...,
+		`SELECT COUNT(*) `+from+whereSQL, args...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -109,7 +164,7 @@ func (r *Repository) ListStaff(ctx context.Context, pool *pgxpool.Pool, f model.
 	}
 	args = append(args, limit, offset)
 
-	q := staffSelect + " " + whereSQL +
+	q := staffSelect(joinClinic) + whereSQL +
 		" ORDER BY u.created_at DESC LIMIT $" + strconv.Itoa(len(args)-1) +
 		" OFFSET $" + strconv.Itoa(len(args))
 
@@ -129,7 +184,10 @@ func (r *Repository) ListStaff(ctx context.Context, pool *pgxpool.Pool, f model.
 			&s.DesignationID, &s.DesignationName,
 			&s.SpecializationID, &s.SpecializationName,
 			&s.MobileCountry, &s.MobileNumber, &s.AdditionalMobile, &s.LandlineNumber,
-			&s.ViewInEMR, &s.JoinDate, &s.Status, &s.IsActive,
+			&s.ViewInEMR, &s.JoinDate, &s.Status, &s.IsActive, &s.IsSuperAdmin,
+			&s.FatherName, &s.MotherName, &s.Gender, &s.MaritalStatus, &s.DateOfBirth,
+			&s.BloodGroup, &s.ProfessionalID, &s.Address, &s.Locality, &s.Pincode,
+			&s.State, &s.Country, &s.DateOfLeaving, &s.RoleNames, &s.HasCredentials,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -141,7 +199,7 @@ func (r *Repository) ListStaff(ctx context.Context, pool *pgxpool.Pool, f model.
 
 func (r *Repository) GetStaff(ctx context.Context, pool *pgxpool.Pool, clinicID, userID string) (*model.StaffDTO, error) {
 	row := pool.QueryRow(ctx,
-		staffSelect+" WHERE u.id = $2::uuid AND cm.clinic_id = $1::uuid LIMIT 1",
+		staffSelect(clinicJoinScoped)+" WHERE u.id = $2::uuid AND cm.clinic_id = $1::uuid LIMIT 1",
 		clinicID, userID,
 	)
 	var s model.StaffDTO
@@ -152,7 +210,10 @@ func (r *Repository) GetStaff(ctx context.Context, pool *pgxpool.Pool, clinicID,
 		&s.DesignationID, &s.DesignationName,
 		&s.SpecializationID, &s.SpecializationName,
 		&s.MobileCountry, &s.MobileNumber, &s.AdditionalMobile, &s.LandlineNumber,
-		&s.ViewInEMR, &s.JoinDate, &s.Status, &s.IsActive,
+		&s.ViewInEMR, &s.JoinDate, &s.Status, &s.IsActive, &s.IsSuperAdmin,
+		&s.FatherName, &s.MotherName, &s.Gender, &s.MaritalStatus, &s.DateOfBirth,
+		&s.BloodGroup, &s.ProfessionalID, &s.Address, &s.Locality, &s.Pincode,
+		&s.State, &s.Country, &s.DateOfLeaving, &s.RoleNames, &s.HasCredentials,
 	); err != nil {
 		return nil, err
 	}
@@ -200,25 +261,25 @@ func (r *Repository) StaffCodeExists(ctx context.Context, pool *pgxpool.Pool, co
 }
 
 type CreateStaffParams struct {
-	UserID            string
-	Email             string
-	PasswordHash      string
-	FullName          string
-	StaffCode         string
-	FirstName         string
-	MiddleName        string
-	LastName          string
-	ProfilePhoto      string
-	DepartmentID      string
-	DesignationID     string
-	SpecializationID  string
-	MobileCountry     string
-	MobileNumber      string
-	AdditionalMobile  string
-	LandlineNumber    string
-	ViewInEMR         bool
-	WorkLocations     []string
-	PrimaryClinicID   string
+	UserID           string
+	Email            string
+	PasswordHash     string
+	FullName         string
+	StaffCode        string
+	FirstName        string
+	MiddleName       string
+	LastName         string
+	ProfilePhoto     string
+	DepartmentID     string
+	DesignationID    string
+	SpecializationID string
+	MobileCountry    string
+	MobileNumber     string
+	AdditionalMobile string
+	LandlineNumber   string
+	ViewInEMR        bool
+	WorkLocations    []string
+	PrimaryClinicID  string
 }
 
 func nullable(v string) any {
@@ -296,26 +357,24 @@ func (r *Repository) CreateStaff(ctx context.Context, pool *pgxpool.Pool, p Crea
 		return "", err
 	}
 
-	if p.PrimaryClinicID != "" {
+	allClinics := dedupe(append(append([]string{}, p.WorkLocations...), p.PrimaryClinicID))
+
+	for _, cid := range allClinics {
 		_, err = tx.Exec(ctx,
 			`INSERT INTO clinic_members (clinic_id, user_id, role)
 			 VALUES ($1::uuid, $2::uuid, 'staff')
 			 ON CONFLICT (clinic_id, user_id) DO NOTHING`,
-			p.PrimaryClinicID, userID,
+			cid, userID,
 		)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	clinics := append([]string{}, p.WorkLocations...)
-	if p.PrimaryClinicID != "" {
-		clinics = append(clinics, p.PrimaryClinicID)
-	}
 	if _, err = tx.Exec(ctx, `DELETE FROM staff_clinics WHERE user_id = $1::uuid`, userID); err != nil {
 		return "", err
 	}
-	for _, cid := range dedupe(clinics) {
+	for _, cid := range allClinics {
 		_, err = tx.Exec(ctx,
 			`INSERT INTO staff_clinics (user_id, clinic_id) VALUES ($1::uuid, $2::uuid)
 			 ON CONFLICT DO NOTHING`,
@@ -432,6 +491,20 @@ func (r *Repository) UpdateStaff(ctx context.Context, pool *pgxpool.Pool, userID
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO staff_clinics (user_id, clinic_id) VALUES ($1::uuid, $2::uuid) ON CONFLICT DO NOTHING`,
 				userID, cid,
+			); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(ctx, `DELETE FROM clinic_members WHERE user_id = $1::uuid`, userID); err != nil {
+			return err
+		}
+		for _, cid := range dedupe(*req.WorkLocations) {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO clinic_members (clinic_id, user_id, role)
+				 VALUES ($1::uuid, $2::uuid, 'staff')
+				 ON CONFLICT (clinic_id, user_id) DO NOTHING`,
+				cid, userID,
 			); err != nil {
 				return err
 			}
@@ -650,4 +723,127 @@ func (r *Repository) DirectoryLookup(ctx context.Context, email string) (string,
 		email,
 	).Scan(&tenantID, &userID)
 	return tenantID, userID, err
+}
+
+// PasswordHash returns the stored bcrypt hash for a user, so a password change
+// can be checked against the current one.
+func (r *Repository) PasswordHash(ctx context.Context, pool *pgxpool.Pool, userID string) (string, error) {
+	var hash string
+	err := pool.QueryRow(ctx,
+		`SELECT COALESCE(password_hash, '') FROM users WHERE id = $1::uuid`, userID,
+	).Scan(&hash)
+	return hash, err
+}
+
+func (r *Repository) SetCredentials(ctx context.Context, pool *pgxpool.Pool, userID, email, passwordHash string) error {
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET email = $2, password_hash = $3, is_active = true, updated_at = now()
+		WHERE id = $1::uuid`,
+		userID, email, passwordHash,
+	); err != nil {
+		return err
+	}
+	// marks the account as having a chosen login rather than the default issued
+	// at creation, which is what HasCredentials reports
+	if _, err := tx.Exec(ctx, `
+		UPDATE staff_profiles SET credentials_set_at = now(), updated_at = now()
+		WHERE user_id = $1::uuid`,
+		userID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) SyncClinicMembership(ctx context.Context, pool *pgxpool.Pool, userID string, clinicIDs []string) error {
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM clinic_members WHERE user_id = $1::uuid`, userID); err != nil {
+		return err
+	}
+	for _, cid := range clinicIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO clinic_members (clinic_id, user_id, role)
+			VALUES ($1::uuid, $2::uuid, 'staff')
+			ON CONFLICT (clinic_id, user_id) DO NOTHING`,
+			cid, userID,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) ListSchedule(ctx context.Context, pool *pgxpool.Pool, userID string) ([]model.ScheduleSlot, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT id::text, day_of_week, start_time::text, end_time::text, is_active
+		FROM staff_weekly_schedule WHERE user_id = $1::uuid
+		ORDER BY day_of_week, start_time`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.ScheduleSlot{}
+	for rows.Next() {
+		var s model.ScheduleSlot
+		if err := rows.Scan(&s.ID, &s.DayOfWeek, &s.StartTime, &s.EndTime, &s.IsActive); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func (r *Repository) UpdateSchedule(ctx context.Context, pool *pgxpool.Pool, userID string, slots []model.ScheduleSlot) error {
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM staff_weekly_schedule WHERE user_id = $1::uuid`, userID); err != nil {
+		return err
+	}
+	for _, s := range slots {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO staff_weekly_schedule (user_id, day_of_week, start_time, end_time, is_active)
+			VALUES ($1::uuid, $2, $3::time, $4::time, $5)`,
+			userID, s.DayOfWeek, s.StartTime, s.EndTime, s.IsActive,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) GetFieldConfig(ctx context.Context, pool *pgxpool.Pool, clinicID string) ([]byte, error) {
+	var cfg []byte
+	err := pool.QueryRow(ctx,
+		`SELECT config FROM staff_field_config WHERE clinic_id = $1::uuid`,
+		clinicID,
+	).Scan(&cfg)
+	if err == pgx.ErrNoRows {
+		return []byte("{}"), nil
+	}
+	return cfg, err
+}
+
+func (r *Repository) PutFieldConfig(ctx context.Context, pool *pgxpool.Pool, clinicID string, config json.RawMessage) error {
+	_, err := pool.Exec(ctx, `
+		INSERT INTO staff_field_config (clinic_id, config, updated_at)
+		VALUES ($1::uuid, $2::jsonb, now())
+		ON CONFLICT (clinic_id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()`,
+		clinicID, config,
+	)
+	return err
 }

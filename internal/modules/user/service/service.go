@@ -127,12 +127,13 @@ func (s *Service) Me(ctx context.Context, claims *coreauth.Claims) (model.UserDT
 	}
 
 	return model.UserDTO{
-		ID:       claims.UserID,
-		Email:    u.Email,
-		FullName: u.FullName,
-		TenantID: claims.TenantID,
-		Role:     u.Role,
-		Modules:  status.Modules,
+		ID:           claims.UserID,
+		Email:        u.Email,
+		FullName:     u.FullName,
+		TenantID:     claims.TenantID,
+		Role:         u.Role,
+		Modules:      status.Modules,
+		IsSuperAdmin: u.IsSuperAdmin,
 	}, nil
 }
 

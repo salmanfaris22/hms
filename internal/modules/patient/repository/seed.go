@@ -62,37 +62,37 @@ func (r *Repository) SeedDemo(ctx context.Context, pool *pgxpool.Pool, patientID
 			patientID, m.name, m.dose, m.sched)
 	}
 
-	vitals := []struct{ cat, kind, val, unit, status string }{
-		{"body", "bmi", "23.4", "", "normal"},
-		{"body", "weight", "75", "kg", "normal"},
-		{"body", "height", "175", "cm", "normal"},
-		{"body", "temperature", "98.6", "°F", "normal"},
-		{"blood", "blood_sugar", "98", "mg/dL", "normal"},
-		{"blood", "hemoglobin", "14.2", "g/dL", "normal"},
-		{"blood", "platelets", "250", "K/µL", "normal"},
-		{"heart", "blood_pressure", "120/80", "mmHg", "normal"},
-		{"heart", "heart_rate", "72", "bpm", "normal"},
-		{"heart", "cholesterol", "180", "mg/dL", "normal"},
-		{"brain", "stress_index", "32", "/100", "normal"},
-		{"brain", "sleep_quality", "78", "/100", "normal"},
-		{"lungs", "respiratory_rate", "16", "bpm", "normal"},
-		{"lungs", "o2_level", "98", "%", "normal"},
-		{"lungs", "peak_flow", "550", "L/min", "normal"},
-		{"kidney", "creatinine", "1.0", "mg/dL", "normal"},
-		{"kidney", "gfr", "92", "mL/min", "normal"},
-		{"dental", "total_teeth", "28", "", "normal"},
-		{"dental", "cavities", "2", "", "elevated"},
-		{"dental", "fillings", "4", "", "normal"},
-		{"eye", "vision_left", "20/20", "", "normal"},
-		{"eye", "vision_right", "20/25", "", "normal"},
-		{"eye", "iop", "15", "mmHg", "normal"},
-		{"skin", "condition", "Clear", "", "normal"},
-		{"skin", "moles_tracked", "6", "", "normal"},
+	vitals := []struct{ cat, kind, val, unit, status, refRange string }{
+		{"body", "bmi", "23.4", "", "normal", "18.5 – 24.9"},
+		{"body", "weight", "75", "kg", "normal", ""},
+		{"body", "height", "175", "cm", "normal", ""},
+		{"body", "temperature", "98.6", "°F", "normal", "97 – 99 °F"},
+		{"blood", "blood_sugar", "98", "mg/dL", "normal", "70 – 140 mg/dL"},
+		{"blood", "hemoglobin", "14.2", "g/dL", "normal", "13.5 – 17.5 g/dL"},
+		{"blood", "platelets", "250", "K/µL", "normal", "150 – 400 K/µL"},
+		{"heart", "blood_pressure", "120/80", "mmHg", "normal", "90/60 – 120/80 mmHg"},
+		{"heart", "heart_rate", "72", "bpm", "normal", "60 – 100 bpm"},
+		{"heart", "cholesterol", "180", "mg/dL", "normal", "< 200 mg/dL"},
+		{"brain", "stress_index", "32", "/100", "normal", "0 – 40 /100"},
+		{"brain", "sleep_quality", "78", "/100", "normal", "70 – 100 /100"},
+		{"lungs", "respiratory_rate", "16", "bpm", "normal", "12 – 20 bpm"},
+		{"lungs", "o2_level", "98", "%", "normal", "95 – 100 %"},
+		{"lungs", "peak_flow", "550", "L/min", "normal", "400 – 700 L/min"},
+		{"kidney", "creatinine", "1.0", "mg/dL", "normal", "0.7 – 1.3 mg/dL"},
+		{"kidney", "gfr", "92", "mL/min", "normal", "> 90 mL/min"},
+		{"dental", "total_teeth", "28", "", "normal", ""},
+		{"dental", "cavities", "2", "", "elevated", ""},
+		{"dental", "fillings", "4", "", "normal", ""},
+		{"eye", "vision_left", "20/20", "", "normal", ""},
+		{"eye", "vision_right", "20/25", "", "normal", ""},
+		{"eye", "iop", "15", "mmHg", "normal", "10 – 21 mmHg"},
+		{"skin", "condition", "Clear", "", "normal", ""},
+		{"skin", "moles_tracked", "6", "", "normal", ""},
 	}
 	for _, v := range vitals {
-		_ = exec(`INSERT INTO patient_vitals (patient_id, category, kind, value_text, unit, status)
-		          VALUES ($1::uuid, $2, $3, $4, $5, $6)`,
-			patientID, v.cat, v.kind, v.val, v.unit, v.status)
+		_ = exec(`INSERT INTO patient_vitals (patient_id, category, kind, value_text, unit, status, reference_range)
+		          VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`,
+			patientID, v.cat, v.kind, v.val, v.unit, v.status, v.refRange)
 	}
 
 	trendPts := []int{92, 95, 99, 96, 101, 105, 110, 108, 102, 97, 94, 98}
