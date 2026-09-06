@@ -1,13 +1,19 @@
-2026/04/19 23:30:26 redis: connected to localhost:6399
-2026/04/19 23:30:26 HMS backend listening on :8080
+nohup: ignoring input
+2026/09/06 19:56:44 HMS backend listening on :8080
 
  ┌───────────────────────────────────────────────────┐ 
  │                   Fiber v2.52.0                   │ 
  │               http://127.0.0.1:8080               │ 
  │       (bound on host 0.0.0.0 and port 8080)       │ 
  │                                                   │ 
- │ Handlers ........... 100  Processes ........... 1 │ 
- │ Prefork ....... Disabled  PID ............. 89722 │ 
+ │ Handlers ........... 231  Processes ........... 1 │ 
+ │ Prefork ....... Disabled  PID ............. 36932 │ 
  └───────────────────────────────────────────────────┘ 
 
-23:30:28 | 200 |      38.983µs | 127.0.0.1 | GET | /api/health | -
+19:56:53 | 404 |    2.197616ms | 127.0.0.1 | GET | / | Cannot GET /
+19:57:08 | 404 |     849.749µs | 127.0.0.1 | GET | /health | Cannot GET /health
+20:00:44 | 404 |       39.84µs | 116.68.104.42 | GET | / | Cannot GET /
+20:00:44 | 404 |      22.038µs | 116.68.104.42 | GET | /favicon.ico | Cannot GET /favicon.ico
+20:00:54 | 404 |      23.954µs | 116.68.104.42 | GET | /health | Cannot GET /health
+20:09:39 | 204 |      14.813µs | 116.68.104.42 | OPTIONS | /api/auth/login | -
+20:09:40 | 401 |    8.048069ms | 116.68.104.42 | POST | /api/auth/login | -

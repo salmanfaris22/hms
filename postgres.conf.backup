@@ -1,14 +1,13 @@
 # HMS Optimized PostgreSQL Configuration for 10K+ users
 
 # Connection
-listen_addresses = '*'
-max_connections = 50
+max_connections = 100
 
 # Memory (adjust based on available RAM)
-shared_buffers = 128MB
+shared_buffers = 1GB
 effective_cache_size = 3GB
 work_mem = 16MB
-maintenance_work_mem = 64MB
+maintenance_work_mem = 256MB
 
 # Query execution
 random_page_cost = 1.1
