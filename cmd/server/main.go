@@ -90,6 +90,23 @@ func main() {
 		log.Fatalf("seed super admin: %v", err)
 	}
 
+	// Demo role logins, refreshed on every boot. Not fatal — a demo-data
+	// problem should never stop the API from coming up. Existing accounts keep
+	// their current password, so a restart cannot undo a password change made
+	// in the app; run `make seed-users` to force a reset.
+	if cfg.SeedDemoAccounts {
+		report, err := seeder.EnsureDemoAccounts(ctx, resolver, registry, seeder.AccountOptions{
+			TenantSlug:  cfg.DemoTenantSlug,
+			SkipMigrate: true, // MigrateAllTenants already ran above
+		})
+		if err != nil {
+			log.Printf("seed demo accounts: %v", err)
+		} else {
+			log.Printf("seed: %d demo accounts ready in tenant %q (password %q)",
+				len(report.Accounts), report.TenantSlug, report.Password)
+		}
+	}
+
 	mailer := email.New(cfg.SendGridAPIKey, cfg.EmailFrom, cfg.EmailFromName)
 
 	uRepo := userRepo.New(registry)
