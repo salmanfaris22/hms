@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # =============================================
+  # TIER 1: PgBouncer Only (500-1,000 users)
+  # =============================================
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: hms-pgbouncer
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/hms
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 50
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 20
+    ports:
+      - "6432:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    volumes:
+      - pgbouncer_configs:/etc/pgbouncer
+    profiles:
+      - tier1
+
+  # =============================================
+  # TIER 2: Redis Cache (2,000-5,000 users)
+  # =============================================
+  redis:
+    image: redis:7-alpine
+    container_name: hms-redis
+    command: >
+      redis-server
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keep-alive 300
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    volumes:
+      - redis_data:/data
+    profiles:
+      - tier2
+
+  # =============================================
+  # TIER 3: Optimized Postgres (5,000-10,000 users)
+  # =============================================
+  postgres:
+    image: postgres:16
+    container_name: hms-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hms
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres.perf.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - "5433:5432"
+    command: postgresql -c config_file=/etc/postgresql/postgres.perf.conf
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+      reservations:
+        memory: 4G
+    profiles:
+      - tier3
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =============================================
+  # Tier 4: Read Replica (50,000+ users) - Future
+  # =============================================
+  postgres-replica:
+    image: postgres:16
+    container_name: hms-postgres-replica
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hms
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./postgres.perf.conf:/etc/postgresql/postgresql.conf
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgres.perf.conf
+      -c hot_standby=on
+      -c hot_standby_feedback=on
+    ports:
+      - "5434:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    profiles:
+      - tier4
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  postgres_replica_data:
+  redis_data:
+  pgbouncer_configs:

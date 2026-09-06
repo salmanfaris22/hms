@@ -1,0 +1,29 @@
+-- Redis cache table (optional - stores cache keys for invalidation)
+-- Not required but useful for tracking cached data
+
+-- Enable query analysis
+SELECT pg_stat_statements_reset();
+
+-- Create function to analyze slow queries
+CREATE OR REPLACE FUNCTION query_stats()
+RETURNS TABLE (
+	query text,
+	calls bigint,
+	total_time double precision,
+	mean_time double precision,
+	stddev_time double precision,
+	rows bigint
+) AS $$
+BEGIN
+	RETURN QUERY
+	SELECT 
+		pg_stat_statements.query,
+		pg_stat_statements.calls,
+		pg_stat_statements.total_exec_time,
+		pg_stat_statements.mean_exec_time,
+		pg_stat_statements.stddev_exec_time,
+		pg_stat_statements.rows
+	FROM pg_stat_statements
+	ORDER BY pg_stat_statements.calls DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
