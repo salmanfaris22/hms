@@ -12,8 +12,13 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     ports:
+<<<<<<< HEAD
       - "5433:5432"
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
+=======
+      - "5434:5432"
+    command: postgresql -c config_file=/etc/postgresql/postgresql.conf
+>>>>>>> 52c95a9d74bdf4085830cdaa08bee6de561de5d7
     deploy:
       resources:
         limits:

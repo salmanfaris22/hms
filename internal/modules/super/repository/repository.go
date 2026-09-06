@@ -109,13 +109,14 @@ func (r *Repository) UpsertAdminUser(
 ) (string, error) {
 	var id string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, full_name, role, phone, phone_country)
-		VALUES ($1, $2, $3, 'admin', $4, $5)
+		INSERT INTO users (email, password_hash, full_name, role, phone, phone_country, is_super_admin)
+		VALUES ($1, $2, $3, 'admin', $4, $5, true)
 		ON CONFLICT (email) DO UPDATE
 		SET password_hash = EXCLUDED.password_hash,
 		    full_name = EXCLUDED.full_name,
 		    phone = EXCLUDED.phone,
 		    phone_country = EXCLUDED.phone_country,
+		    is_super_admin = true,
 		    updated_at = now()
 		RETURNING id::text`,
 		email, passwordHash, fullName, phone, phoneCountry,

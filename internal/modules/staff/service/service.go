@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 var (
 	ErrTenantUnavail = errors.New("tenant unavailable")
+	ErrCurrentPwReq  = errors.New("current password is required")
+	ErrCurrentPwBad  = errors.New("current password is incorrect")
 	ErrForbidden     = errors.New("not a member of this clinic")
 	ErrBadBody       = errors.New("invalid body")
 	ErrNameReq       = errors.New("name is required")
@@ -60,7 +63,13 @@ func (s *Service) ListStaff(ctx context.Context, m Meta, clinicID string, f mode
 	if err != nil {
 		return nil, 0, err
 	}
-	f.ClinicID = clinicID
+	requester, err := s.repo.GetStaff(ctx, pool, clinicID, m.UserID)
+	if err == nil && requester.IsSuperAdmin {
+		f.AllUsers = true
+	}
+	if !f.AllUsers {
+		f.ClinicID = clinicID
+	}
 	return s.repo.ListStaff(ctx, pool, f)
 }
 
@@ -157,7 +166,17 @@ func (s *Service) UpdateStaff(ctx context.Context, m Meta, clinicID, userID stri
 	if err != nil {
 		return err
 	}
-	return s.repo.UpdateStaff(ctx, pool, userID, req)
+	target, err := s.repo.GetStaff(ctx, pool, clinicID, userID)
+	if err == nil && target.IsSuperAdmin {
+		requester, err := s.repo.GetStaff(ctx, pool, clinicID, m.UserID)
+		if err != nil || !requester.IsSuperAdmin {
+			return ErrForbidden
+		}
+	}
+	if err := s.repo.UpdateStaff(ctx, pool, userID, req); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) DeactivateStaff(ctx context.Context, m Meta, clinicID, userID string) error {
@@ -165,7 +184,17 @@ func (s *Service) DeactivateStaff(ctx context.Context, m Meta, clinicID, userID 
 	if err != nil {
 		return err
 	}
-	return s.repo.DeactivateStaff(ctx, pool, userID)
+	target, err := s.repo.GetStaff(ctx, pool, clinicID, userID)
+	if err == nil && target.IsSuperAdmin {
+		requester, err := s.repo.GetStaff(ctx, pool, clinicID, m.UserID)
+		if err != nil || !requester.IsSuperAdmin {
+			return ErrForbidden
+		}
+	}
+	if err := s.repo.DeactivateStaff(ctx, pool, userID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) Stats(ctx context.Context, m Meta, clinicID string) (model.StatsDTO, error) {
@@ -245,4 +274,84 @@ func (s *Service) DeleteDocument(ctx context.Context, m Meta, clinicID, userID, 
 		return err
 	}
 	return s.repo.DeleteDocument(ctx, pool, userID, docID)
+}
+
+func (s *Service) CreateCredentials(ctx context.Context, m Meta, clinicID, staffID string, req model.SetCredentialsRequest) error {
+	pool, err := s.poolAndMember(ctx, m.TenantID, clinicID, m.UserID)
+	if err != nil {
+		return err
+	}
+	if req.Password == "" {
+		return ErrBadBody
+	}
+
+	// A user changing their own password must prove they know the current one.
+	// An administrator setting someone else's cannot, so the check only applies
+	// to self-edits — but a supplied value is always verified either way.
+	self := staffID == m.UserID
+	if self || req.CurrentPassword != "" {
+		if req.CurrentPassword == "" {
+			return ErrCurrentPwReq
+		}
+		stored, err := s.repo.PasswordHash(ctx, pool, staffID)
+		if err != nil {
+			return ErrNotFound
+		}
+		if stored == "" || !auth.CheckPassword(stored, req.CurrentPassword) {
+			return ErrCurrentPwBad
+		}
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetCredentials(ctx, pool, staffID, req.Username, hash); err != nil {
+		return err
+	}
+	staff, err := s.repo.GetStaff(ctx, pool, clinicID, staffID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if err := s.repo.UpsertDirectory(ctx, staff.Email, m.TenantID, staffID); err != nil {
+		return fmt.Errorf("upsert directory: %w", err)
+	}
+	if req.RoleID != "" {
+		if err := s.repo.AssignRoles(ctx, pool, clinicID, []string{staffID}, []string{req.RoleID}); err != nil {
+			return fmt.Errorf("assign role: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) ListSchedule(ctx context.Context, m Meta, clinicID, userID string) ([]model.ScheduleSlot, error) {
+	pool, err := s.poolAndMember(ctx, m.TenantID, clinicID, m.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListSchedule(ctx, pool, userID)
+}
+
+func (s *Service) UpdateSchedule(ctx context.Context, m Meta, clinicID, userID string, req model.UpdateScheduleRequest) error {
+	pool, err := s.poolAndMember(ctx, m.TenantID, clinicID, m.UserID)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateSchedule(ctx, pool, userID, req.Slots)
+}
+
+func (s *Service) GetFieldConfig(ctx context.Context, m Meta, clinicID string) ([]byte, error) {
+	pool, err := s.pool(ctx, m.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetFieldConfig(ctx, pool, clinicID)
+}
+
+func (s *Service) PutFieldConfig(ctx context.Context, m Meta, clinicID string, body json.RawMessage) error {
+	pool, err := s.pool(ctx, m.TenantID)
+	if err != nil {
+		return err
+	}
+	return s.repo.PutFieldConfig(ctx, pool, clinicID, body)
 }

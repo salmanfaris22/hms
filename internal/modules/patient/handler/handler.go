@@ -47,6 +47,10 @@ func mapErr(c *fiber.Ctx, err error) error {
 	case errors.Is(err, service.ErrDB):
 		return response.Internal(c, err.Error())
 	default:
+		var ve service.ValidationError
+		if errors.As(err, &ve) {
+			return response.BadRequest(c, ve.Error())
+		}
 		return response.Internal(c, err.Error())
 	}
 }
@@ -119,6 +123,21 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	})
 }
 
+func (h *Handler) Update(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.CreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	if err := h.svc.Update(c.Context(), meta, c.Params("id"), req); err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "updated"})
+}
+
 func (h *Handler) Delete(c *fiber.Ctx) error {
 	meta, ok := buildMeta(c)
 	if !ok {
@@ -128,6 +147,61 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		return mapErr(c, err)
 	}
 	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "deleted"})
+}
+
+func (h *Handler) ListDocuments(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	docs, err := h.svc.ListDocuments(c.Context(), meta, c.Params("id"))
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"items": docs})
+}
+
+func (h *Handler) AddDocument(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.AddDocumentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	id, err := h.svc.AddDocument(c.Context(), meta, c.Params("id"), req)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusCreated, constants.MsgCreated, fiber.Map{"id": id})
+}
+
+func (h *Handler) DeleteDocument(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	if err := h.svc.DeleteDocument(c.Context(), meta, c.Params("id"), c.Params("docId")); err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "deleted"})
+}
+
+func (h *Handler) AddMedication(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.AddMedicationRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	id, err := h.svc.AddMedication(c.Context(), meta, c.Params("id"), req)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusCreated, constants.MsgCreated, fiber.Map{"id": id})
 }
 
 func (h *Handler) AddAlert(c *fiber.Ctx) error {
@@ -241,4 +315,140 @@ func (h *Handler) PutFieldConfig(c *fiber.Ctx) error {
 		return mapErr(c, err)
 	}
 	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "ok"})
+}
+
+func (h *Handler) CollectPayment(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.CollectPaymentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	out, err := h.svc.CollectPayment(c.Context(), meta, c.Params("id"), c.Params("invoiceId"), req)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, out)
+}
+
+func (h *Handler) AddVitals(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.AddVitalsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	n, err := h.svc.AddVitals(c.Context(), meta, c.Params("id"), req)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusCreated, constants.MsgCreated, fiber.Map{"saved": n})
+}
+
+func (h *Handler) GetVitalsConfig(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	cfg, err := h.svc.VitalsConfig(c.Context(), meta, c.Query("clinic"))
+	if err != nil {
+		return mapErr(c, err)
+	}
+	c.Set("Content-Type", "application/json")
+	return c.Send(cfg)
+}
+
+func (h *Handler) PutVitalsConfig(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	if err := h.svc.PutVitalsConfig(c.Context(), meta, c.Query("clinic"), c.Body()); err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "saved"})
+}
+
+func (h *Handler) ListDocumentCategories(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	cats, err := h.svc.ListDocumentCategories(c.Context(), meta, c.Query("clinic"))
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"items": cats})
+}
+
+func (h *Handler) AddDocumentCategory(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	id, err := h.svc.AddDocumentCategory(c.Context(), meta, c.Query("clinic"), req.Name)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusCreated, constants.MsgCreated, fiber.Map{"id": id})
+}
+
+func (h *Handler) DeleteDocumentCategory(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	if err := h.svc.DeleteDocumentCategory(c.Context(), meta, c.Query("clinic"), c.Params("catId")); err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "deleted"})
+}
+
+func (h *Handler) ListFamily(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	items, err := h.svc.ListFamily(c.Context(), meta, c.Params("id"))
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"items": items})
+}
+
+func (h *Handler) AddFamilyMember(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	var req model.AddFamilyLinkRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "invalid body")
+	}
+	id, err := h.svc.AddFamilyMember(c.Context(), meta, c.Params("id"), req)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusCreated, constants.MsgCreated, fiber.Map{"id": id})
+}
+
+func (h *Handler) DeleteFamilyMember(c *fiber.Ctx) error {
+	meta, ok := buildMeta(c)
+	if !ok {
+		return response.Unauthorized(c, "not authenticated")
+	}
+	if err := h.svc.DeleteFamilyMember(c.Context(), meta, c.Params("id"), c.Params("famId")); err != nil {
+		return mapErr(c, err)
+	}
+	return response.Success(c, fiber.StatusOK, constants.MsgOK, fiber.Map{"status": "deleted"})
 }

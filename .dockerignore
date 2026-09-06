@@ -1,0 +1,6 @@
+.env
+.env.perf
+.env.production
+*.log
+bin/
+.git

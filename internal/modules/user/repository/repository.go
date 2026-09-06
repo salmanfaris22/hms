@@ -39,9 +39,9 @@ func (r *Repository) GetTenantStatus(ctx context.Context, tenantID string) (mode
 func (r *Repository) FindUser(ctx context.Context, pool *pgxpool.Pool, userID string) (model.DBUser, error) {
 	var u model.DBUser
 	err := pool.QueryRow(ctx, `
-		SELECT email, password_hash, full_name, role
+		SELECT email, password_hash, full_name, role, is_super_admin
 		FROM users WHERE id = $1::uuid AND is_active = true`, userID,
-	).Scan(&u.Email, &u.PasswordHash, &u.FullName, &u.Role)
+	).Scan(&u.Email, &u.PasswordHash, &u.FullName, &u.Role, &u.IsSuperAdmin)
 	return u, err
 }
 

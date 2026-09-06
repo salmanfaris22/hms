@@ -17,6 +17,9 @@ import (
 	apptHandler "github.com/salman/hms-backend/internal/modules/appointment/handler"
 	apptRepo "github.com/salman/hms-backend/internal/modules/appointment/repository"
 	apptService "github.com/salman/hms-backend/internal/modules/appointment/service"
+	billingHandler "github.com/salman/hms-backend/internal/modules/billing/handler"
+	billingRepo "github.com/salman/hms-backend/internal/modules/billing/repository"
+	billingService "github.com/salman/hms-backend/internal/modules/billing/service"
 	catalogueHandler "github.com/salman/hms-backend/internal/modules/catalogue/handler"
 	catalogueRepo "github.com/salman/hms-backend/internal/modules/catalogue/repository"
 	catalogueService "github.com/salman/hms-backend/internal/modules/catalogue/service"
@@ -29,6 +32,9 @@ import (
 	inventoryHandler "github.com/salman/hms-backend/internal/modules/inventory/handler"
 	inventoryRepo "github.com/salman/hms-backend/internal/modules/inventory/repository"
 	inventoryService "github.com/salman/hms-backend/internal/modules/inventory/service"
+	labHandler "github.com/salman/hms-backend/internal/modules/lab/handler"
+	labRepo "github.com/salman/hms-backend/internal/modules/lab/repository"
+	labService "github.com/salman/hms-backend/internal/modules/lab/service"
 	logsHandler "github.com/salman/hms-backend/internal/modules/logs/handler"
 	logsRepo "github.com/salman/hms-backend/internal/modules/logs/repository"
 	logsService "github.com/salman/hms-backend/internal/modules/logs/service"
@@ -49,6 +55,8 @@ import (
 	"github.com/salman/hms-backend/pkg/constants"
 	"github.com/salman/hms-backend/pkg/email"
 	"github.com/salman/hms-backend/pkg/routes"
+	"github.com/salman/hms-backend/pkg/sms"
+	"github.com/salman/hms-backend/pkg/whatsapp"
 )
 
 func main() {
@@ -91,11 +99,20 @@ func main() {
 	clSvc := clinicService.New(clRepo)
 	clinicsH := clinicHandler.New(clSvc)
 	pRepo := patientRepo.New(resolver)
-	pSvc := patientService.New(pRepo)
+	smsSender := sms.New(cfg.SMSAPIKey, cfg.SMSFrom)
+	waSender := whatsapp.New(cfg.WhatsAppAPIKey, cfg.WhatsAppFrom)
+	pSvc := patientService.New(pRepo, clRepo, mailer, smsSender, waSender)
 	patientsH := patientHandler.New(pSvc)
 	aRepo := apptRepo.New()
 	aSvc := apptService.New(aRepo, pSvc)
 	appointmentsH := apptHandler.New(aSvc)
+	bRepo := billingRepo.New()
+	bSvc := billingService.New(bRepo, pSvc)
+	billingH := billingHandler.New(bSvc)
+
+	lbRepo := labRepo.New()
+	lbSvc := labService.New(lbRepo, pSvc)
+	labH := labHandler.New(lbSvc)
 	catRepo := catalogueRepo.New(pSvc)
 	catSvc := catalogueService.New(catRepo, pSvc)
 	catalogueH := catalogueHandler.New(catSvc)
@@ -129,7 +146,7 @@ func main() {
 			return c.JSON(fiber.Map{
 				"success":    false,
 				"statusCode": code,
-				"message":   err.Error(),
+				"message":    err.Error(),
 			})
 		},
 	})
@@ -137,7 +154,9 @@ func main() {
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:5173,http://localhost:5174",
+		// the dev servers by default; a hosted frontend names its own origin
+		// through CORS_ORIGINS. Never "*" while AllowCredentials is on.
+		AllowOrigins:     cfg.CORSOrigins,
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 		AllowHeaders:     "Accept,Authorization,Content-Type,X-Tenant",
 		AllowCredentials: true,
@@ -158,6 +177,12 @@ func main() {
 
 	appointments := app.Group(constants.APIAppointments, middleware.Require(cfg.JWTSecret))
 	routes.AppointmentsRoutes(appointments, appointmentsH)
+
+	billing := app.Group(constants.APIBilling, middleware.Require(cfg.JWTSecret))
+	routes.BillingRoutes(billing, billingH)
+
+	lab := app.Group(constants.APILab, middleware.Require(cfg.JWTSecret))
+	routes.LabRoutes(lab, labH)
 
 	catalogue := app.Group(constants.APICatalogue, middleware.Require(cfg.JWTSecret))
 	routes.CatalogueRoutes(catalogue, catalogueH)

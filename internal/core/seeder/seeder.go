@@ -62,8 +62,8 @@ func EnsureDemoTenant(ctx context.Context, resolver *postgres.TenantResolver) er
 
 	var adminID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, full_name, role)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (email, password_hash, full_name, role, is_super_admin)
+		VALUES ($1, $2, $3, $4, true)
 		RETURNING id::text`,
 		"admin@demo.clinic", hash, "Demo Admin", "admin",
 	).Scan(&adminID); err != nil {
@@ -192,8 +192,8 @@ func ensureSuiUser(ctx context.Context, resolver *postgres.TenantResolver, pool 
 	}
 	var suiID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, full_name, role)
-		VALUES ($1, $2, 'Sui Admin', 'admin')
+		INSERT INTO users (email, password_hash, full_name, role, is_super_admin)
+		VALUES ($1, $2, 'Sui Admin', 'admin', true)
 		ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash
 		RETURNING id::text`, suiEmail, suiHash,
 	).Scan(&suiID); err != nil {
@@ -468,7 +468,7 @@ func seedInventory(ctx context.Context, pool *pgxpool.Pool, clinicID string) err
 	// assets
 	type assetSeed struct {
 		name, mfr, serial, model, dept, location, category, condition, status string
-		cost, value                                                             float64
+		cost, value                                                           float64
 	}
 	assets := []assetSeed{
 		{"Adjustable Hospital Beds (Set of 10)", "Progress Bed", "SN-BED-001", "HH-Item", "General Ward", "Ward A", "Furniture", "Good", "Active", 14000, 9500},

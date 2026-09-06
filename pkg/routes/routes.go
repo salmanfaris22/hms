@@ -4,10 +4,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	apptHandler "github.com/salman/hms-backend/internal/modules/appointment/handler"
+	billingHandler "github.com/salman/hms-backend/internal/modules/billing/handler"
 	catalogueHandler "github.com/salman/hms-backend/internal/modules/catalogue/handler"
 	clinicHandler "github.com/salman/hms-backend/internal/modules/clinic/handler"
 	dashboardHandler "github.com/salman/hms-backend/internal/modules/dashboard/handler"
 	inventoryHandler "github.com/salman/hms-backend/internal/modules/inventory/handler"
+	labHandler "github.com/salman/hms-backend/internal/modules/lab/handler"
 	logsHandler "github.com/salman/hms-backend/internal/modules/logs/handler"
 	patientHandler "github.com/salman/hms-backend/internal/modules/patient/handler"
 	staffHandler "github.com/salman/hms-backend/internal/modules/staff/handler"
@@ -21,10 +23,12 @@ type AuthHandlers struct {
 	Clinics      *clinicHandler.Handler
 	Patients     *patientHandler.Handler
 	Appointments *apptHandler.Handler
+	Billing      *billingHandler.Handler
 	Catalogue    *catalogueHandler.Handler
 	Super        *superHandler.Handler
 	Uploads      *uploadHandler.Handler
 	Inventory    *inventoryHandler.Handler
+	Lab          *labHandler.Handler
 }
 
 func Register(app *fiber.App, h AuthHandlers) {
@@ -32,6 +36,7 @@ func Register(app *fiber.App, h AuthHandlers) {
 	ClinicsRoutes(app, h.Clinics)
 	PatientsRoutes(app, h.Patients)
 	AppointmentsRoutes(app, h.Appointments)
+	BillingRoutes(app, h.Billing)
 	CatalogueRoutes(app, h.Catalogue)
 	SuperRoutes(app, h.Super)
 	UploadsRoutes(app, h.Uploads)
@@ -45,6 +50,7 @@ func AuthRoutes(r fiber.Router, h *userHandler.Handler) {
 
 func ClinicsRoutes(r fiber.Router, h *clinicHandler.Handler) {
 	r.Get("/", h.List)
+	r.Get("/all", h.ListAll)
 	r.Post("/", h.Create)
 	r.Post("/join", h.Join)
 	r.Get("/:id", h.Get)
@@ -100,11 +106,27 @@ func PatientsRoutes(r fiber.Router, h *patientHandler.Handler) {
 	r.Post("/", h.Create)
 	r.Get("/field-config", h.GetFieldConfig)
 	r.Put("/field-config", h.PutFieldConfig)
+	// must precede "/:id", or the wildcard matches "vitals-config" as a patient id
+	r.Get("/vitals-config", h.GetVitalsConfig)
+	r.Put("/vitals-config", h.PutVitalsConfig)
+	r.Get("/document-categories", h.ListDocumentCategories)
+	r.Post("/document-categories", h.AddDocumentCategory)
+	r.Delete("/document-categories/:catId", h.DeleteDocumentCategory)
 	r.Get("/:id", h.Get)
 	r.Get("/:id/profile", h.GetProfile)
 	r.Post("/:id/seed-demo", h.SeedDemo)
 	r.Post("/:id/alerts", h.AddAlert)
 	r.Post("/:id/allergies", h.AddAllergy)
+	r.Post("/:id/vitals", h.AddVitals)
+	r.Post("/:id/medications", h.AddMedication)
+	r.Post("/:id/invoices/:invoiceId/payments", h.CollectPayment)
+	r.Get("/:id/documents", h.ListDocuments)
+	r.Post("/:id/documents", h.AddDocument)
+	r.Delete("/:id/documents/:docId", h.DeleteDocument)
+	r.Get("/:id/family", h.ListFamily)
+	r.Post("/:id/family", h.AddFamilyMember)
+	r.Delete("/:id/family/:famId", h.DeleteFamilyMember)
+	r.Patch("/:id", h.Update)
 	r.Delete("/:id", h.Delete)
 	r.Delete("/alerts/:id", h.DeleteAlert)
 	r.Delete("/allergies/:id", h.DeleteAllergy)
@@ -112,9 +134,32 @@ func PatientsRoutes(r fiber.Router, h *patientHandler.Handler) {
 
 func AppointmentsRoutes(r fiber.Router, h *apptHandler.Handler) {
 	r.Post("/", h.Book)
-	r.Patch("/:id", h.Update)
+	// literal paths first, or "/:id" swallows "settings", "calendar" and "blocks"
 	r.Get("/settings", h.GetSettings)
 	r.Put("/settings", h.PutSettings)
+	r.Get("/calendar", h.Calendar)
+	r.Post("/blocks", h.CreateBlock)
+	r.Delete("/blocks/:blockId", h.DeleteBlock)
+	r.Get("/prescriptions", h.PastVisits)
+	r.Get("/:id/prescription", h.GetPrescription)
+	r.Put("/:id/prescription", h.PutPrescription)
+	r.Patch("/:id", h.Update)
+	r.Delete("/:id", h.Delete)
+}
+
+// BillingRoutes — the Billing screen (3564:55048): the list, its four cards and
+// the payment history behind the second tab.
+func BillingRoutes(r fiber.Router, h *billingHandler.Handler) {
+	r.Get("/invoices", h.ListInvoices)
+	r.Post("/invoices", h.CreateInvoice)
+	r.Get("/summary", h.Summary)
+	r.Get("/payments", h.ListPayments)
+	r.Get("/invoices/draft", h.AppointmentDraft)
+	// after the literal paths, or "/:id" swallows them
+	r.Get("/invoices/:id", h.GetInvoice)
+	r.Put("/invoices/:id", h.UpdateInvoice)
+	r.Post("/invoices/:id/payments", h.RecordPayment)
+	r.Post("/invoices/:id/refunds", h.RecordRefund)
 }
 
 func CatalogueRoutes(r fiber.Router, h *catalogueHandler.Handler) {
@@ -163,6 +208,10 @@ func CatalogueRoutes(r fiber.Router, h *catalogueHandler.Handler) {
 	r.Get("/manufacturers", h.ListManufacturers)
 	r.Post("/manufacturers", h.CreateManufacturer)
 	r.Delete("/manufacturers/:id", h.DeleteManufacturer)
+	r.Get("/rx-terms", h.ListRxTerms)
+	r.Post("/rx-terms", h.CreateRxTerm)
+	r.Delete("/rx-terms/:id", h.DeleteRxTerm)
+
 	r.Get("/units", h.ListUnits)
 	r.Post("/units", h.CreateUnit)
 	r.Delete("/units/:id", h.DeleteUnit)
@@ -228,14 +277,19 @@ func InventoryRoutes(r fiber.Router, h *inventoryHandler.Handler) {
 
 func StaffRoutes(r fiber.Router, h *staffHandler.Handler) {
 	r.Get("/stats", h.Stats)
+	r.Get("/field-config", h.GetFieldConfig)
+	r.Post("/field-config", h.PutFieldConfig)
 	r.Get("/", h.ListStaff)
 	r.Post("/", h.CreateStaff)
 	r.Get("/:id", h.GetStaff)
 	r.Patch("/:id", h.UpdateStaff)
 	r.Post("/:id/deactivate", h.DeactivateStaff)
+	r.Get("/:id/schedule", h.ListSchedule)
+	r.Put("/:id/schedule", h.UpdateSchedule)
 	r.Get("/:id/documents", h.ListDocuments)
 	r.Post("/:id/documents", h.CreateDocument)
 	r.Delete("/:id/documents/:docId", h.DeleteDocument)
+	r.Post("/:id/credentials", h.SetCredentials)
 }
 
 func RolesRoutes(r fiber.Router, h *staffHandler.Handler) {
@@ -248,4 +302,17 @@ func RolesRoutes(r fiber.Router, h *staffHandler.Handler) {
 
 func DashboardRoutes(r fiber.Router, h *dashboardHandler.Handler) {
 	r.Get("/overview", h.Overview)
+}
+
+// LabRoutes — the Laboratory module (3765:51814).
+func LabRoutes(r fiber.Router, h *labHandler.Handler) {
+	r.Get("/orders", h.ListTests)
+	r.Post("/orders", h.CreateOrder)
+	r.Get("/summary", h.Summary)
+	r.Get("/reports", h.ListReports)
+	// after the literal paths, or "/:id" swallows them
+	r.Get("/orders/:id", h.GetTest)
+	r.Get("/orders/:id/values", h.Values)
+	r.Post("/orders/:id/collect", h.Collect)
+	r.Post("/orders/:id/result", h.SaveResult)
 }

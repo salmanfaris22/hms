@@ -173,14 +173,18 @@ func (h *Handler) deleteLookup(c *fiber.Ctx, table string) error {
 	return writeJSON(c, fiber.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *Handler) ListCategories(c *fiber.Ctx) error   { return h.listLookup(c, "drug_categories", "") }
-func (h *Handler) CreateCategory(c *fiber.Ctx) error   { return h.createLookup(c, "drug_categories", "") }
-func (h *Handler) DeleteCategory(c *fiber.Ctx) error   { return h.deleteLookup(c, "drug_categories") }
-func (h *Handler) ListManufacturers(c *fiber.Ctx) error { return h.listLookup(c, "drug_manufacturers", "") }
+func (h *Handler) ListCategories(c *fiber.Ctx) error { return h.listLookup(c, "drug_categories", "") }
+func (h *Handler) CreateCategory(c *fiber.Ctx) error { return h.createLookup(c, "drug_categories", "") }
+func (h *Handler) DeleteCategory(c *fiber.Ctx) error { return h.deleteLookup(c, "drug_categories") }
+func (h *Handler) ListManufacturers(c *fiber.Ctx) error {
+	return h.listLookup(c, "drug_manufacturers", "")
+}
 func (h *Handler) CreateManufacturer(c *fiber.Ctx) error {
 	return h.createLookup(c, "drug_manufacturers", "")
 }
-func (h *Handler) DeleteManufacturer(c *fiber.Ctx) error { return h.deleteLookup(c, "drug_manufacturers") }
+func (h *Handler) DeleteManufacturer(c *fiber.Ctx) error {
+	return h.deleteLookup(c, "drug_manufacturers")
+}
 func (h *Handler) ListUnits(c *fiber.Ctx) error {
 	kind := c.Query("kind")
 	if kind != "primary" && kind != "secondary" {
@@ -196,6 +200,43 @@ func (h *Handler) CreateUnit(c *fiber.Ctx) error {
 	return h.createLookup(c, "drug_units", kind)
 }
 func (h *Handler) DeleteUnit(c *fiber.Ctx) error { return h.deleteLookup(c, "drug_units") }
+
+// ── prescription-pad terms ───────────────────────────────────────────────────
+
+// The pad's sections each keep their own vocabulary; anything else is refused
+// rather than silently filed under a kind nobody reads back.
+var rxTermKinds = map[string]bool{
+	"complaint":      true,
+	"observation":    true,
+	"diagnosis":      true,
+	"treatment_plan": true,
+	"treatment_done": true,
+	"investigation":  true,
+	"advice":         true,
+}
+
+func rxTermKind(c *fiber.Ctx) (string, bool) {
+	kind := c.Query("kind")
+	return kind, rxTermKinds[kind]
+}
+
+func (h *Handler) ListRxTerms(c *fiber.Ctx) error {
+	kind, ok := rxTermKind(c)
+	if !ok {
+		return writeErr(c, fiber.StatusBadRequest, "unknown term kind")
+	}
+	return h.listLookup(c, "rx_terms", kind)
+}
+
+func (h *Handler) CreateRxTerm(c *fiber.Ctx) error {
+	kind, ok := rxTermKind(c)
+	if !ok {
+		return writeErr(c, fiber.StatusBadRequest, "unknown term kind")
+	}
+	return h.createLookup(c, "rx_terms", kind)
+}
+
+func (h *Handler) DeleteRxTerm(c *fiber.Ctx) error { return h.deleteLookup(c, "rx_terms") }
 
 // ── copy ─────────────────────────────────────────────────────────────────────
 

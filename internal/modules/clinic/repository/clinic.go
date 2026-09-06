@@ -58,6 +58,34 @@ func RandomInviteCode(n int) (string, error) {
 	return string(out), nil
 }
 
+func (r *Repository) ListAllClinics(ctx context.Context, pool *pgxpool.Pool, archived bool) ([]model.ClinicDTO, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT c.id::text, c.name, c.clinic_type, c.location, c.color,
+		       c.invite_code, '' as role, false as is_default, NULL::timestamptz as last_accessed_at, c.created_at,
+		       c.logo_url, c.address, c.locality, c.pin_code, c.state, c.country,
+		       c.phones, c.email, c.website, c.gstin, c.facility_id,
+		       c.time_format, c.system_language, c.time_zone, c.date_format, c.currency,
+		       c.timings, c.is_primary, c.is_archived
+		FROM clinics c
+		WHERE c.is_archived = $1
+		ORDER BY c.is_primary DESC, c.created_at ASC`,
+		archived,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.ClinicDTO{}
+	for rows.Next() {
+		clinic, err := scanClinic(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, clinic)
+	}
+	return out, nil
+}
+
 func (r *Repository) ListClinics(ctx context.Context, pool *pgxpool.Pool, userID string, archived bool) ([]model.ClinicDTO, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT c.id::text, c.name, c.clinic_type, c.location, c.color,

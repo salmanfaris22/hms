@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"strconv"
@@ -49,6 +50,9 @@ func mapErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusForbidden, err.Error())
 	case errors.Is(err, service.ErrNotFound):
 		return response.Error(c, fiber.StatusNotFound, err.Error())
+	case errors.Is(err, service.ErrCurrentPwReq),
+		errors.Is(err, service.ErrCurrentPwBad):
+		return response.Error(c, fiber.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrBadBody),
 		errors.Is(err, service.ErrNameReq),
 		errors.Is(err, service.ErrEmailReq),
@@ -269,6 +273,27 @@ func (h *Handler) AssignRoles(c *fiber.Ctx) error {
 	return writeJSON(c, fiber.StatusOK, fiber.Map{"status": "ok"})
 }
 
+// ── Credentials ─────────────────────────────────────────────────────────────
+
+func (h *Handler) SetCredentials(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	clinicID := c.Query("clinicId")
+	if clinicID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "clinicId is required")
+	}
+	var req model.SetCredentialsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid body")
+	}
+	if err := h.svc.CreateCredentials(c.Context(), m, clinicID, c.Params("id"), req); err != nil {
+		return mapErr(c, err)
+	}
+	return writeJSON(c, fiber.StatusOK, fiber.Map{"status": "ok"})
+}
+
 // ── Documents ───────────────────────────────────────────────────────────────
 
 func (h *Handler) ListDocuments(c *fiber.Ctx) error {
@@ -305,6 +330,81 @@ func (h *Handler) CreateDocument(c *fiber.Ctx) error {
 		return mapErr(c, err)
 	}
 	return writeJSON(c, fiber.StatusCreated, fiber.Map{"id": id})
+}
+
+// ── Field Config ────────────────────────────────────────────────────────────
+
+func (h *Handler) GetFieldConfig(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	clinicID := c.Query("clinic")
+	if clinicID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "clinic is required")
+	}
+	cfg, err := h.svc.GetFieldConfig(c.Context(), m, clinicID)
+	if err != nil {
+		return mapErr(c, err)
+	}
+	c.Set("Content-Type", "application/json")
+	return c.Status(fiber.StatusOK).Send(cfg)
+}
+
+func (h *Handler) PutFieldConfig(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	clinicID := c.Query("clinic")
+	if clinicID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "clinic is required")
+	}
+	var body json.RawMessage
+	if err := c.BodyParser(&body); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid body")
+	}
+	if err := h.svc.PutFieldConfig(c.Context(), m, clinicID, body); err != nil {
+		return mapErr(c, err)
+	}
+	return writeJSON(c, fiber.StatusOK, fiber.Map{"status": "ok"})
+}
+
+// ── Schedule ───────────────────────────────────────────────────────────────
+
+func (h *Handler) ListSchedule(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	clinicID := c.Query("clinicId")
+	if clinicID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "clinicId is required")
+	}
+	slots, err := h.svc.ListSchedule(c.Context(), m, clinicID, c.Params("id"))
+	if err != nil {
+		return mapErr(c, err)
+	}
+	return writeJSON(c, fiber.StatusOK, fiber.Map{"slots": slots})
+}
+
+func (h *Handler) UpdateSchedule(c *fiber.Ctx) error {
+	m, err := h.meta(c)
+	if err != nil {
+		return err
+	}
+	clinicID := c.Query("clinicId")
+	if clinicID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "clinicId is required")
+	}
+	var req model.UpdateScheduleRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid body")
+	}
+	if err := h.svc.UpdateSchedule(c.Context(), m, clinicID, c.Params("id"), req); err != nil {
+		return mapErr(c, err)
+	}
+	return writeJSON(c, fiber.StatusOK, fiber.Map{"status": "ok"})
 }
 
 func (h *Handler) DeleteDocument(c *fiber.Ctx) error {
