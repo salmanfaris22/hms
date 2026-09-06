@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,7 +15,6 @@ import (
 	"github.com/salman/hms-backend/internal/infrastructure/persistence/postgres"
 	"github.com/salman/hms-backend/internal/modules/patient/model"
 	"github.com/salman/hms-backend/internal/modules/patient/repository"
-	"github.com/salman/hms-backend/pkg/cache"
 )
 
 var (
@@ -25,12 +23,6 @@ var (
 	ErrForbidden       = errors.New("not a member of this clinic")
 	ErrNotFound        = errors.New("patient not found")
 	ErrDB              = errors.New("db error")
-)
-
-const (
-	cacheTTLList   = 5 * time.Minute
-	cacheTTLGet    = 5 * time.Minute
-	cacheTTLConfig = 10 * time.Minute
 )
 
 type Meta struct {
@@ -59,14 +51,6 @@ func (s *Service) List(ctx context.Context, meta Meta, f model.ListFilter) (mode
 	f.TenantID = meta.TenantID
 	f.UserID = meta.UserID
 
-	cacheKey := fmt.Sprintf("patients:%s:%s:%d:%d:%s:%s", f.TenantID, f.ClinicID, f.Page, f.PageSize, f.Status, f.Search)
-	if cache.Client != nil {
-		var cached model.ListResponse
-		if err := cache.Get(ctx, cacheKey, &cached); err == nil {
-			return cached, nil
-		}
-	}
-
 	pool, err := s.repo.Pool(ctx, meta.TenantID)
 	if err != nil {
 		return model.ListResponse{}, ErrTenantUnavail
@@ -81,30 +65,16 @@ func (s *Service) List(ctx context.Context, meta Meta, f model.ListFilter) (mode
 		return model.ListResponse{}, ErrDB
 	}
 
-	resp := model.ListResponse{
+	return model.ListResponse{
 		Patients: patients,
 		Stats:    stats,
 		Page:     f.Page,
 		PageSize: f.PageSize,
 		Total:    total,
-	}
-	if cache.Client != nil {
-		if err := cache.Set(ctx, cacheKey, resp, cacheTTLList); err != nil {
-			log.Printf("cache set: %v", err)
-		}
-	}
-	return resp, nil
+	}, nil
 }
 
 func (s *Service) Get(ctx context.Context, meta Meta, id string) (model.PatientDTO, error) {
-	cacheKey := cache.PatientGetKey(meta.TenantID, id)
-	if cache.Client != nil {
-		var cached model.PatientDTO
-		if err := cache.Get(ctx, cacheKey, &cached); err == nil {
-			return cached, nil
-		}
-	}
-
 	pool, err := s.repo.Pool(ctx, meta.TenantID)
 	if err != nil {
 		return model.PatientDTO{}, ErrTenantUnavail
@@ -115,11 +85,6 @@ func (s *Service) Get(ctx context.Context, meta Meta, id string) (model.PatientD
 			return model.PatientDTO{}, ErrNotFound
 		}
 		return model.PatientDTO{}, ErrDB
-	}
-	if cache.Client != nil {
-		if err := cache.Set(ctx, cacheKey, p, cacheTTLGet); err != nil {
-			log.Printf("cache set: %v", err)
-		}
 	}
 	return p, nil
 }
@@ -153,11 +118,6 @@ func (s *Service) Create(ctx context.Context, meta Meta, req model.CreateRequest
 		return "", "", errors.New("create failed")
 	}
 
-	if cache.Client != nil {
-		_ = cache.InvalidatePatientList(ctx, meta.TenantID)
-		_ = cache.InvalidateClinic(ctx, meta.TenantID)
-	}
-
 	audit.LogRaw(ctx, s.repo.Tenants().Registry(), meta.IP, meta.UserAgent, audit.Event{
 		ActorID: meta.ActorID, ActorEmail: meta.ActorEmail, ActorKind: audit.ActorUser,
 		TenantID: meta.TenantID, Action: "patient.create", Resource: patientNumber,
@@ -172,10 +132,6 @@ func (s *Service) Delete(ctx context.Context, meta Meta, id string) error {
 	}
 	if err := s.repo.Delete(ctx, pool, id, meta.UserID); err != nil {
 		return errors.New("delete failed")
-	}
-	if cache.Client != nil {
-		_ = cache.InvalidatePatient(ctx, meta.TenantID, id)
-		_ = cache.InvalidatePatientList(ctx, meta.TenantID)
 	}
 	audit.LogRaw(ctx, s.repo.Tenants().Registry(), meta.IP, meta.UserAgent, audit.Event{
 		ActorID: meta.ActorID, ActorEmail: meta.ActorEmail, ActorKind: audit.ActorUser,

@@ -46,7 +46,6 @@ import (
 	userHandler "github.com/salman/hms-backend/internal/modules/user/handler"
 	userRepo "github.com/salman/hms-backend/internal/modules/user/repository"
 	userService "github.com/salman/hms-backend/internal/modules/user/service"
-	"github.com/salman/hms-backend/pkg/cache"
 	"github.com/salman/hms-backend/pkg/constants"
 	"github.com/salman/hms-backend/pkg/email"
 	"github.com/salman/hms-backend/pkg/routes"
@@ -54,14 +53,6 @@ import (
 
 func main() {
 	cfg := config.Load()
-
-	cache.Connect(cfg.RedisAddr)
-	if err := cache.Ping(context.Background()); err != nil {
-		log.Printf("redis: not connected - %v", err)
-	} else {
-		log.Printf("redis: connected to %s", cfg.RedisAddr)
-	}
-	defer cache.Close()
 
 	dbURL := cfg.DatabaseURL
 	if cfg.PgBouncerURL != "" {

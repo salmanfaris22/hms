@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,7 +13,6 @@ import (
 	"github.com/salman/hms-backend/internal/core/audit"
 	"github.com/salman/hms-backend/internal/modules/clinic/model"
 	"github.com/salman/hms-backend/internal/modules/clinic/repository"
-	"github.com/salman/hms-backend/pkg/cache"
 )
 
 var (
@@ -32,10 +29,6 @@ var (
 	ErrBadKind        = errors.New("invalid kind")
 	ErrBadTable       = errors.New("bad table")
 	ErrTargetsReq     = errors.New("targetClinicIds is required")
-)
-
-const (
-	cacheTTLClinics = 10 * time.Minute
 )
 
 type Meta struct {
@@ -82,25 +75,11 @@ func (s *Service) audit(ctx context.Context, m Meta, action, resource string) {
 // ── clinics CRUD ─────────────────────────────────────────────────────────────
 
 func (s *Service) List(ctx context.Context, m Meta, archived bool) ([]model.ClinicDTO, error) {
-	cacheKey := fmt.Sprintf("clinics:%s:list:%v", m.TenantID, archived)
-	if cache.Client != nil {
-		var cached []model.ClinicDTO
-		if err := cache.Get(ctx, cacheKey, &cached); err == nil {
-			return cached, nil
-		}
-	}
 	pool, err := s.pool(ctx, m.TenantID)
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.repo.ListClinics(ctx, pool, m.UserID, archived)
-	if err != nil {
-		return nil, err
-	}
-	if cache.Client != nil {
-		_ = cache.Set(ctx, cacheKey, out, cacheTTLClinics)
-	}
-	return out, nil
+	return s.repo.ListClinics(ctx, pool, m.UserID, archived)
 }
 
 func (s *Service) Get(ctx context.Context, m Meta, id string) (model.ClinicDTO, error) {
@@ -156,9 +135,6 @@ func (s *Service) Create(ctx context.Context, m Meta, req model.CreateClinicRequ
 	if err != nil {
 		log.Printf("create clinic: %v", err)
 		return "", errors.New("insert failed")
-	}
-	if cache.Client != nil {
-		_ = cache.InvalidateClinic(ctx, m.TenantID)
 	}
 	s.audit(ctx, m, "clinic.create", req.Name)
 	return id, nil
@@ -578,7 +554,3 @@ func (s *Service) PutNumbering(ctx context.Context, m Meta, clinicID string, set
 }
 
 func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
-
-// suppress unused import warnings
-var _ = fmt.Sprintf
-var _ = time.Minute

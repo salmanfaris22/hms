@@ -13,9 +13,6 @@ type Config struct {
 	SuperAdminEmail    string
 	SuperAdminPassword string
 
-	// Redis (caching)
-	RedisAddr string
-
 	// PgBouncer (connection pooling)
 	PgBouncerURL string
 
@@ -40,7 +37,6 @@ func Load() Config {
 		Port:                getenv("PORT", "8080"),
 		SuperAdminEmail:     getenv("SUPER_ADMIN_EMAIL", "super@hms.local"),
 		SuperAdminPassword:  getenv("SUPER_ADMIN_PASSWORD", "SuperAdmin123!"),
-		RedisAddr:           getenv("REDIS_ADDR", "localhost:6379"),
 		PgBouncerURL:        pgBouncerURL,
 		SendGridAPIKey:      getenv("SENDGRID_API_KEY", ""),
 		EmailFrom:           getenv("EMAIL_FROM", "no-reply@hms.local"),

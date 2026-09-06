@@ -26,30 +26,6 @@ services:
       - tier1
 
   # =============================================
-  # TIER 2: Redis Cache (2,000-5,000 users)
-  # =============================================
-  redis:
-    image: redis:7-alpine
-    container_name: hms-redis
-    command: >
-      redis-server
-      --maxmemory 1gb
-      --maxmemory-policy allkeys-lru
-      --tcp-backlog 511
-      --timeout 0
-      --tcp-keep-alive 300
-    ports:
-      - "6379:6379"
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-    volumes:
-      - redis_data:/data
-    profiles:
-      - tier2
-
-  # =============================================
   # TIER 3: Optimized Postgres (5,000-10,000 users)
   # =============================================
   postgres:
@@ -111,5 +87,4 @@ services:
 volumes:
   postgres_data:
   postgres_replica_data:
-  redis_data:
   pgbouncer_configs:

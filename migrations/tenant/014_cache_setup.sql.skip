@@ -1,6 +1,3 @@
--- Redis cache table (optional - stores cache keys for invalidation)
--- Not required but useful for tracking cached data
-
 -- Enable query analysis
 SELECT pg_stat_statements_reset();
 
